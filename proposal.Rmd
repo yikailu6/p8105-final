@@ -1,0 +1,62 @@
+---
+title: "Final Project Proposal"
+author: "Xiaobo Shen, Harrison Wei, Yikai Lu, Jiaqi Xie"
+date: "2026-11-13"
+output: github_document
+---
+
+# Maternal Smoking During the First Trimester and Infant Birth Weight in the United States, 2023–2025
+
+## Group Members
+
+- Xiaobo Shen (xs2635)
+- Harrison Wei (hw3206)
+- Yikai Lu (YL6375)
+- Jiaqi Xie (jx2724)
+
+## Motivation and Research Questions
+
+Maternal cigarette smoking during pregnancy is an important health behavior that may be associated with infant health at birth. Our project will examine the relationship between maternal smoking during the first trimester and infant birth weight in the United States from 2023 through 2025.
+
+We will study birth weight in two complementary ways. Mean birth weight summarizes differences in the overall level of infant birth weight, while the proportion of infants weighing less than 2,500 grams captures the frequency of low birth weight. Examining both measures will allow us to determine whether smoking-group differences are visible not only in average birth weight but also in the prevalence of a clinically important adverse birth outcome.
+
+Our project will address three main questions:
+
+1. How does mean infant birth weight differ between mothers who reported smoking during the first trimester and mothers who reported zero cigarette use?
+2. How does the proportion of low-birth-weight infants, defined as birth weight below 2,500 grams, differ between these two groups?
+3. Is the difference in low-birth-weight prevalence between the smoking and non-smoking groups similar in 2023, 2024, and 2025?
+
+## Data Source and Study Population
+
+We will use the 2023, 2024, and 2025 U.S. natality public-use files from the Centers for Disease Control and Prevention / National Center for Health Statistics Vital Statistics system.
+
+Each row represents an individual registered live birth and includes information on the infant, maternal characteristics, pregnancy-related factors, and maternal health behaviors.
+
+Our preliminary merged dataset contains 10,528,168 singleton birth records across the three study years before excluding records with missing or unknown values. We will restrict the analysis to singleton births so that birth-weight comparisons are not strongly influenced by the substantially different birth-weight distributions of multiple births.
+
+Maternal smoking status will be based on reported cigarette use during the first trimester. Mothers reporting zero cigarettes will be classified as non-smokers, while mothers reporting a positive number of cigarettes will be classified as smokers. Records with unknown or not-stated first-trimester smoking information will be treated separately during data cleaning and excluded from direct comparisons between the smoking and non-smoking groups. Records with missing or unusable birth-weight information will also be excluded from analyses requiring birth weight.
+
+## Planned Analysis and Visualizations
+
+We will first import, combine, and clean the three annual natality files and ensure that smoking status, birth weight, plurality, and year are coded consistently.
+
+We will then calculate mean birth weight and the percentage of low-birth-weight infants for smokers and non-smokers, both overall and separately for 2023, 2024, and 2025.
+
+One primary visualization will show two points for each year: the percentage of low-birth-weight infants among first-trimester smokers and the corresponding percentage among non-smokers. The difference between the two percentages will be labeled so that changes in the smoking–non-smoking gap across years can be compared directly.
+
+Additional visualizations may show birth-weight distributions or mean birth weight by smoking status and year.
+
+## Intended Final Products
+
+The final project will include a reproducible written report, a project website summarizing the motivation, data source, analysis, visualizations, and main findings, and a short narrated screencast highlighting the key results.
+
+All project materials and code will be maintained collaboratively in the group GitHub repository.
+
+## Planned Timeline
+
+- **November 13:** Finalize the proposal, research questions, and data source.
+- **November 16–20:** Attend the project review meeting and revise the project plan based on feedback.
+- **Late November:** Complete data import, cleaning, and construction of the analytic dataset.
+- **Early December:** Complete exploratory analyses, visualizations, and additional statistical analyses as appropriate.
+- **December 6–10:** Draft and revise the written report and project website.
+- **December 10–12:** Finalize the screencast, reproducibility checks, and all project deliverables.
