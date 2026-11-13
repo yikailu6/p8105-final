@@ -1,0 +1,102 @@
+---
+title: "p8105-final-project"
+author: "Yikai Lu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r}
+# Folder containing your three CDC text files
+project_dir <- "D:/Yikai's Graduate study/2026 Fall/P8105 data science/P8105 Final"
+years <- 2023:2025
+
+# Read one year in batches and write cleaned singleton birth records
+append_year <- function(path, year, output) {
+  input <- file(path, open = "rt")
+  on.exit(close(input))
+
+  total <- 0
+  singletons <- 0
+
+  repeat {
+    records <- readLines(input, n = 25000L)
+    if (length(records) == 0) break
+
+    # Check the record length and birth year before extracting fields
+    stopifnot(
+      all(nchar(records, type = "bytes") >= 507L),
+      all(substr(records, 9, 12) == as.character(year))
+    )
+    total <- total + length(records)
+
+    # Plurality code 1 means a singleton birth
+    records <- records[substr(records, 454, 454) == "1"]
+    if (length(records) == 0) next
+
+    age <- as.integer(substr(records, 75, 76))
+    cigarettes <- as.integer(substr(records, 255, 256))
+    weight <- as.integer(substr(records, 504, 507))
+
+    # Recode unknown values before defining smoking and low birth weight
+    cigarettes[cigarettes %in% 99L] <- NA_integer_
+    weight[weight %in% 9999L] <- NA_integer_
+    stopifnot(all(is.na(weight) | (weight >= 227 & weight <= 8165)))
+
+    rows <- data.frame(
+      year = year,
+      maternal_age = age,
+      cigarettes_daily_trimester1 = cigarettes,
+      smoked_trimester1 = cigarettes > 0,
+      birth_weight_g = weight,
+      low_birth_weight = weight < 2500
+    )
+
+    write.table(
+      rows, output, sep = ",", row.names = FALSE,
+      col.names = FALSE, quote = FALSE, na = "NA"
+    )
+    singletons <- singletons + nrow(rows)
+  }
+
+  stopifnot(singletons > 0)
+  message(year, ": read ", total, " births; saved ", singletons, " singleton births.")
+}
+
+# Combine all three years into one compressed CSV
+build_study <- function(folder, years) {
+  inputs <- file.path(folder, sprintf("Nat%dPublicUS.txt", years))
+  missing <- inputs[!file.exists(inputs)]
+  if (length(missing) > 0) stop("Missing input: ", paste(missing, collapse = ", "))
+
+  target <- file.path(folder, "birth_study_2023_2025.csv.gz")
+  if (file.exists(target)) stop("Dataset already exists: ", target)
+
+  # Give the file its final name only after all three years finish
+  tmp <- tempfile("birth_study_", tmpdir = folder)
+  on.exit(unlink(tmp))
+  output <- gzfile(tmp, open = "wt")
+
+  tryCatch({
+    columns <- c(
+      "year", "maternal_age", "cigarettes_daily_trimester1",
+      "smoked_trimester1", "birth_weight_g", "low_birth_weight"
+    )
+    writeLines(paste(columns, collapse = ","), output)
+
+    for (i in seq_along(years)) {
+      message("Processing ", years[i], "...")
+      append_year(inputs[i], years[i], output)
+    }
+  }, finally = close(output))
+
+  if (!file.rename(tmp, target)) stop("Could not save the completed dataset.")
+  message("Saved: ", target)
+  target
+}
+
+study_file <- build_study(project_dir, years)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
