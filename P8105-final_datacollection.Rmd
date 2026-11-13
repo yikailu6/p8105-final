@@ -96,6 +96,8 @@ build_study <- function(folder, years) {
 study_file <- build_study(project_dir, years)
 ```
 
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
