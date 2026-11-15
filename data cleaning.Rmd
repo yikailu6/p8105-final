@@ -1,0 +1,132 @@
+---
+title: "Data cleaning"
+author: "Yikai Lu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## 1. Import the combined dataset
+
+Each row represents one U.S. singleton live birth. The data preparation
+script already combined the three years and recoded unknown smoking
+status and birth weight as missing (`NA`).
+
+```{r setup, message=FALSE}
+# readr provides read_csv() for importing the data.
+# dplyr provides the functions we use to count and filter records.
+library(readr)
+library(dplyr)
+
+# The data folder is inside our project, so every teammate can use
+# the same path. read_csv() can open the compressed .gz file directly.
+births <- read_csv(
+  "data/birth_study_2023_2025.csv.gz",
+  show_col_types = FALSE
+)
+
+# Show the dimensions, column names, and types.
+# In the output, look for 10,528,168 rows and 6 columns.
+glimpse(births)
+```
+
+## 2. Check missing values before filtering
+
+For our comparison, we need to know both whether the mother reported
+smoking in the first trimester and how much the infant weighed at birth.
+
+```{r check-missing}
+# group_by(year) makes summarize() calculate one row for each year.
+cleaning_summary <- births |>
+  group_by(year) |>
+  summarize(
+    # n() counts all singleton births in the current year.
+    total_births = n(),
+
+    # is.na() is TRUE when a value is missing.
+    # sum() counts how many records meet that condition.
+    missing_smoking = sum(is.na(smoked_trimester1)),
+    missing_weight = sum(is.na(birth_weight_g)),
+
+    # The exclamation mark means "not", and & means "and".
+    # A record is eligible when BOTH variables are recorded.
+    eligible_births = sum(
+      !is.na(smoked_trimester1) & !is.na(birth_weight_g)
+    ),
+
+    # Subtraction counts each excluded birth once, even when
+    # both smoking status and birth weight are missing.
+    excluded_births = total_births - eligible_births,
+
+    # Return an ordinary, ungrouped summary table.
+    .groups = "drop"
+  )
+
+# Display the table with commas so the counts are easier to read.
+knitr::kable(cleaning_summary, format.args = list(big.mark = ","))
+```
+```{r}
+#check data status
+cleaning_summary |>
+  mutate(year = as.character(year)) |>
+  knitr::kable(format.args = list(big.mark = ","))
+```
+
+
+## 3. Create the dataset for analysis
+
+```{r save-cleaned-data}
+# Find the project folder even if this Rmd is in a subfolder.
+project_dir <- rstudioapi::getActiveProject()
+if (is.null(project_dir)) stop("Open p8105-final.Rproj first.")
+
+data_dir <- file.path(project_dir, "data")
+dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+stopifnot(dir.exists(data_dir))
+
+# Confirm that all eligible births are present before saving.
+stopifnot(nrow(analysis_births) == sum(cleaning_summary$eligible_births))
+
+# Print the destination, then write the compressed CSV.
+clean_file <- file.path(data_dir, "analysis_births_2023_2025.csv.gz")
+message("Saving to: ", clean_file)
+readr::write_csv(analysis_births, clean_file)
+
+# Show the saved file's size in bytes.
+file.info(clean_file)$size
+```
+
+```{r verify-saved-data}
+# Reopen the compressed CSV from the path used by the save chunk.
+saved_births <- readr::read_csv(clean_file, show_col_types = FALSE)
+
+# Check that the file has the same columns and number of rows.
+stopifnot(
+  identical(names(saved_births), names(analysis_births)),
+  nrow(saved_births) == nrow(analysis_births)
+)
+
+# Compare every column, including row order and missing values.
+for (column in names(analysis_births)) {
+  if (!identical(saved_births[[column]], analysis_births[[column]])) {
+    stop("The saved values differ in column: ", column)
+  }
+}
+
+# This message appears only after all checks pass.
+message("Verified: the saved CSV matches analysis_births.")
+
+# Display the number of saved records per year.
+saved_births |>
+  dplyr::count(year, name = "eligible_births")
+```
+
+We conducted a retrospective observational study using the 2023, 2024, and 2025 U.S. natality public-use files from the National Center for Health Statistics. Using R, we extracted maternal age, first-trimester cigarette use, plurality, and infant birth weight from the annual fixed-width files. We retained singleton births and combined the three years into one dataset, keeping the birth year for each record. We classified first-trimester smoking as any reported cigarette use (more than zero cigarettes per day) or no reported use (zero cigarettes per day). We examined birth weight both as a continuous measure in grams and as a binary outcome, defining low birth weight as less than 2,500 grams. We excluded records with missing smoking information, missing birth weight, or both. After saving the cleaned dataset, we read it back into R and verified the eligible record counts for each year.
+
+Across the three years, the initial dataset contained 10,528,168 singleton birth records. After excluding 53,543 records with missing exposure or outcome information, 10,474,625 records (99.49%) remained. The final dataset included 3,475,888 births in 2023, 3,506,516 in 2024, and 3,492,221 in 2025.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
