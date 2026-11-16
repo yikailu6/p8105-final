@@ -1,0 +1,253 @@
+---
+title: "data analysis"
+author: "Yikai Lu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+#Read the data we cleanded before
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# The path starts in your project folder.
+clean_file <- "data/analysis_births_2023_2025.csv.gz"
+
+# Stop here if R cannot find the file.
+stopifnot(file.exists(clean_file))
+
+# Read only the columns needed for the smoking and birth-weight analyses.
+births <- read_csv(
+  clean_file,
+  col_select = c(year, smoked_trimester1, birth_weight_g, low_birth_weight),
+  show_col_types = FALSE
+)
+
+# Display the first six records.
+head(births)
+```
+```{r}
+#Verify the number of birth
+year_counts <- births |>
+  count(year, name = "eligible_births") |>
+  arrange(year)
+
+year_counts
+```
+#Let's start Q1 What percentage of eligible singleton births had reported first-trimester smoking in 2023, 2024, and 2025?
+
+```{r}
+# Every record in the cleaned dataset should have a known smoking status.
+stopifnot(is.logical(births$smoked_trimester1), !anyNA(births$smoked_trimester1))
+
+annual <- births |>
+  group_by(year) |>
+  summarise(
+    eligible_births = n(),                      # All eligible births in this year
+    reported_smoking = sum(smoked_trimester1),  # TRUE contributes 1, FALSE contributes 0
+    smoking_pct = 100 * reported_smoking / eligible_births,
+    .groups = "drop"
+  ) |>
+  arrange(year)
+
+# Format the table for the report. Keep the year displayed as 2023.
+annual |>
+  mutate(year = as.character(year)) |>
+  knitr::kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    col.names = c("Year", "Eligible births", "Reported smoking", "Smoking (%)")
+  )
+```
+```{r}
+ggplot(annual, aes(x = factor(year), y = smoking_pct)) +
+  geom_col(fill = "steelblue", width = 0.6) +
+  labs(
+    title = "Reported first-trimester smoking by birth year",
+    x = "Birth year",
+    y = "Eligible singleton births with reported smoking (%)"
+  ) +
+  theme_minimal()
+```
+
+
+Among eligible U.S. singleton births, first-trimester smoking was reported for
+`r sprintf("%.2f%%", annual$smoking_pct[annual$year == 2023])` in 2023,
+`r sprintf("%.2f%%", annual$smoking_pct[annual$year == 2024])` in 2024, and
+`r sprintf("%.2f%%", annual$smoking_pct[annual$year == 2025])` in 2025.
+
+
+#How did average birth weight differ between births with and without reported first-trimester smoking?
+
+```{r}
+# Pool 2023–2025 and calculate the average birth weight within each group.
+weight_summary <- births |>
+  group_by(smoked_trimester1) |>
+  summarise(
+    n_births = n(),
+    mean_weight_g = mean(birth_weight_g),
+    .groups = "drop"
+  )
+
+# Display the two groups with readable labels.
+weight_summary |>
+  mutate(smoked_trimester1 = if_else(smoked_trimester1, "Yes", "No")) |>
+  knitr::kable(
+    col.names = c("Reported first-trimester smoking", "Births", "Mean birth weight (g)"),
+    digits = 1,
+    format.args = list(big.mark = ",")
+  )
+
+# Calculate the difference in grams using the unrounded group means.
+difference_g <- with(
+  weight_summary,
+  mean_weight_g[smoked_trimester1] - mean_weight_g[!smoked_trimester1]
+)
+round(difference_g, 1)
+```
+Among eligible U.S. singleton births in 2023–2025, mean birth weight was 3,043.5 g for births with reported first-trimester smoking and 3,278.7 g for births with no reported first-trimester smoking. Across the three years, reported first-trimester smoking was associated with a 235.2 g lower mean birth weight in this unadjusted comparison. 
+
+So, we want to know how common was low birth weight in each group?
+
+```{r}
+# Count low-birth-weight infants within each smoking group.
+lbw_summary <- births |>
+  group_by(smoked_trimester1) |>
+  summarise(
+    total_births = n(),
+    low_weight_births = sum(low_birth_weight),  # Each TRUE counts as one birth
+    low_weight_pct = 100 * low_weight_births / total_births,
+    .groups = "drop"
+  )
+
+# Show the counts and percentages together.
+lbw_summary |>
+  mutate(smoked_trimester1 = if_else(smoked_trimester1, "Yes", "No")) |>
+  knitr::kable(
+    col.names = c("Reported smoking", "Total births",
+                  "Low-birth-weight births", "Low birth weight (%)"),
+    digits = 2,
+    format.args = list(big.mark = ",")
+  )
+```
+Among eligible U.S. singleton births in 2023–2025, 14.98% of infants in the reported first-trimester smoking group had low birth weight, compared with 6.76% in the group with no reported smoking. That is an absolute difference of 8.22 percentage points, or about 8 more low-birth-weight infants per 100 births in the reported-smoking group.
+
+so, next we will calculate the isk difference and risk ratio directly
+```{r}
+# Select each group's percentage using its TRUE/FALSE smoking status.
+pct_yes <- lbw_summary$low_weight_pct[lbw_summary$smoked_trimester1]
+pct_no  <- lbw_summary$low_weight_pct[!lbw_summary$smoked_trimester1]
+
+# Subtraction gives the absolute difference in percentage points.
+risk_difference_pp <- pct_yes - pct_no
+
+# Division gives the relative risk, using no reported smoking as the reference.
+risk_ratio <- pct_yes / pct_no
+
+risk_difference_pp
+risk_ratio
+```
+Among eligible U.S. singleton births in 2023–2025, low birth weight occurred in
+`r sprintf("%.2f%%", pct_yes)` of births with reported first-trimester smoking
+and `r sprintf("%.2f%%", pct_no)` of births with no reported smoking.
+The unadjusted risk was `r sprintf("%.2f", risk_difference_pp)` percentage
+points higher in the reported-smoking group, corresponding to a risk ratio
+of `r sprintf("%.2f", risk_ratio)`.
+
+```{r}
+clean_file <- "data/analysis_births_2023_2025.csv.gz"
+
+births <- readr::read_csv(
+  clean_file,
+  col_select = c(year, maternal_age, smoked_trimester1,
+                 birth_weight_g, low_birth_weight),
+  show_col_types = FALSE
+)
+
+# Confirm that age is loaded and the row count matches your cleaning summary.
+names(births)
+stopifnot("maternal_age" %in% names(births), nrow(births) == 10474625)
+
+# Check how maternal age is recorded before using it in the model.
+age_counts <- births |>
+  count(maternal_age, name = "births") |>
+  arrange(maternal_age)
+
+print(age_counts, n = Inf)
+
+# Confirm that adding the age column preserved the full analysis cohort.
+stopifnot(sum(age_counts$births) == 10474625)
+```
+Fit the adjusted logistic regression
+
+```{r}
+# Check the full age range and how many births have missing age.
+births |>
+  summarise(
+    youngest_recorded = min(maternal_age, na.rm = TRUE),
+    oldest_recorded = max(maternal_age, na.rm = TRUE),
+    missing_age = sum(is.na(maternal_age))
+  )
+
+# Within each group, count births below 2,500 g and births at or above 2,500 g.
+model_counts <- births |>
+  filter(!is.na(maternal_age)) |>
+  group_by(smoked_trimester1, maternal_age, year) |>
+  summarise(
+    low_weight = sum(low_birth_weight),
+    other_weight = sum(!low_birth_weight),
+    .groups = "drop"
+  )
+
+# Confirm that every birth with a recorded age contributes to the model.
+stopifnot(
+  sum(model_counts$low_weight + model_counts$other_weight) ==
+    sum(!is.na(births$maternal_age))
+)
+```
+
+```{r}
+adjusted_model <- glm(
+  cbind(low_weight, other_weight) ~
+    smoked_trimester1 + factor(maternal_age) + factor(year),
+  family = binomial(),
+  data = model_counts
+)
+
+# Extract the coefficient comparing reported smoking with no reported smoking.
+term <- "smoked_trimester1TRUE"
+estimate <- coef(adjusted_model)[[term]]
+se <- sqrt(vcov(adjusted_model)[term, term])
+
+# Convert log odds to an adjusted odds ratio and a 95% Wald confidence interval.
+adjusted_result <- tibble::tibble(
+  adjusted_OR = exp(estimate),
+  lower_95 = exp(estimate - 1.96 * se),
+  upper_95 = exp(estimate + 1.96 * se)
+)
+
+knitr::kable(adjusted_result, digits = 3)
+```
+
+Among eligible U.S. singleton births in 2023–2025, low birth weight occurred in
+`r sprintf("%.2f%%", pct_yes)` of births with reported first-trimester smoking
+and `r sprintf("%.2f%%", pct_no)` of births with no reported smoking.
+After adjustment for maternal age and birth year, the odds of low birth weight
+were `r sprintf("%.2f", adjusted_result$adjusted_OR)` times as high in the
+reported-smoking group (95% CI `r sprintf("%.2f", adjusted_result$lower_95)`–`r sprintf("%.2f", adjusted_result$upper_95)`).
+
+
+###Here we finished Q1-3 but I find our project just focus on simple one, to make a deeper research I am interested in , I will have Question 2. How does low-birth-weight risk vary with smoking intensity, and does the pattern differ by maternal age? Question 3. Does knowing smoking intensity improve prediction of low birth weight in a later year? And then for previous three question, we combine
+
+
+
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
