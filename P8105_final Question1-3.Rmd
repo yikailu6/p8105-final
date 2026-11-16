@@ -238,7 +238,7 @@ were `r sprintf("%.2f", adjusted_result$adjusted_OR)` times as high in the
 reported-smoking group (95% CI `r sprintf("%.2f", adjusted_result$lower_95)`–`r sprintf("%.2f", adjusted_result$upper_95)`).
 
 
-###Here we finished Q1-3 but I find our project just focus on simple one, to make a deeper research I am interested in , I will have Question 2. How does low-birth-weight risk vary with smoking intensity, and does the pattern differ by maternal age? Question 3. Does knowing smoking intensity improve prediction of low birth weight in a later year? And then for previous three question, we combine
+###Here we finished Q1-3 but I find our project just focus on simple one, to make a deeper research I am interested in , I will have Question 2. How does low-birth-weight risk vary with smoking intensity, and does the pattern differ by maternal age? Question 3. Does knowing smoking intensity improve prediction of low birth weight in a later year? And then for previous three question, we combine them into one question: How common was reported first-trimester smoking, and how did birth weight differ between groups?
 
 
 
