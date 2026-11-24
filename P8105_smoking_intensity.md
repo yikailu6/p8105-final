@@ -1,57 +1,151 @@
 P8105_Q2smoking_intensity
 ================
 Yikai Lu
-2026-11-16
+2026-11-24
+
+\#Here is the problem 2
 
 ``` r
-library(readr)
 library(dplyr)
-```
-
-    ## 
-    ## 载入程序包：'dplyr'
-
-    ## The following objects are masked from 'package:stats':
-    ## 
-    ##     filter, lag
-
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     intersect, setdiff, setequal, union
-
-``` r
 library(tidyr)
 library(ggplot2)
 
-# Read only the columns needed for Q2.
-births <- read_csv(
-  "data/analysis_births_2023_2025.csv.gz",
-  col_select = c(year, maternal_age, cigarettes_daily_trimester1,
-                 smoked_trimester1, low_birth_weight),
-  show_col_types = FALSE
+clean_file <- "data/analysis_births_2023_2025.csv.gz"
+
+# Verify the file location.
+stopifnot(file.exists(clean_file))
+
+# Read the compressed CSV using base R.
+# Explicit column types keep the smoking and outcome indicators logical.
+births <- local({
+  con <- gzfile(clean_file, open = "rt")
+  on.exit(close(con))
+
+  read.csv(
+    con,
+    colClasses = c(
+      year = "integer",
+      maternal_age = "integer",
+      cigarettes_daily_trimester1 = "integer",
+      smoked_trimester1 = "logical",
+      birth_weight_g = "integer",
+      low_birth_weight = "logical"
+    ),
+    na.strings = c("", "NA"),
+    stringsAsFactors = FALSE
+  )
+})
+
+required_columns <- c(
+  "year",
+  "maternal_age",
+  "cigarettes_daily_trimester1",
+  "smoked_trimester1",
+  "birth_weight_g",
+  "low_birth_weight"
 )
 
-# Confirm that we have the same eligible cohort as in Q1.
-# Also verify that the cigarette count agrees with the yes/no smoking variable.
+# Confirm the required columns and expected number of records.
 stopifnot(
-  nrow(births) == 10474625,
-  !anyNA(births),
-  all(births$year %in% 2023:2025),
-  all(births$maternal_age %in% 12:50),
-  all(births$cigarettes_daily_trimester1 %in% 0:98),
-  all((births$cigarettes_daily_trimester1 > 0) == births$smoked_trimester1),
-  is.logical(births$low_birth_weight)
+  all(required_columns %in% names(births)),
+  nrow(births) == 10474625
 )
+
+names(births)
 ```
 
-\#Create smoking-intensity and maternal-age groups
+    ## [1] "year"                        "maternal_age"               
+    ## [3] "cigarettes_daily_trimester1" "smoked_trimester1"          
+    ## [5] "birth_weight_g"              "low_birth_weight"
 
 ``` r
-# Keep these labels in their natural order in the tables and plots.
-dose_labels <- c("0", "1–4", "5–9", "10–19", "20+")
-age_labels <- c("Under 20", "20–24", "25–29", "30–34", "35–39", "40+")
+nrow(births)
+```
 
-# Each row of 'cells' represents one year, age group, and smoking group.
+    ## [1] 10474625
+
+``` r
+# Check the columns needed for this figure.
+stopifnot(
+  all(c("birth_weight_g", "smoked_trimester1") %in% names(births)),
+  !anyNA(births$birth_weight_g),
+  !anyNA(births$smoked_trimester1),
+  all(births$birth_weight_g > 0)
+)
+
+# Count births within each 100-g interval.
+weight_bins <- births |>
+  mutate(
+    # Example: 3,245 g belongs to the interval [3,200, 3,300).
+    bin_start = floor(birth_weight_g / 100) * 100,
+
+    smoking_group = factor(
+      smoked_trimester1,
+      levels = c(FALSE, TRUE),
+      labels = c("No reported smoking", "Reported smoking")
+    )
+  ) |>
+  count(smoking_group, bin_start, name = "births_in_bin") |>
+  group_by(smoking_group) |>
+  mutate(
+    # Each group's percentages sum to 100%.
+    percent = 100 * births_in_bin / sum(births_in_bin)
+  ) |>
+  ungroup()
+
+# Confirm that every record contributed to the figure.
+stopifnot(sum(weight_bins$births_in_bin) == nrow(births))
+
+weight_distribution_plot <- ggplot(
+  weight_bins,
+  aes(x = bin_start + 50, y = percent)
+) +
+  geom_col(width = 100, fill = "steelblue") +
+  geom_vline(
+    xintercept = 2500,
+    linetype = "dashed",
+    color = "firebrick",
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ smoking_group, ncol = 1) +
+  labs(
+    title = "Birth-weight distributions by smoking status",
+    subtitle = "Reported first-trimester smoking, 2023–2025",
+    x = "Birth weight (g)",
+    y = "Births within smoking group (%)",
+    caption = "Dashed line: 2,500-g low-birth-weight threshold."
+  ) +
+  theme_minimal(base_size = 12)
+
+weight_distribution_plot
+```
+
+![](P8105_smoking_intensity_files/figure-gfm/weight-distribution-1.png)<!-- -->
+Birth-weight distributions overlapped substantially, but the
+distribution among births with reported first-trimester smoking was
+shifted toward lower weights. This group also had a larger proportion of
+births below the 2,500-g low-birth-weight threshold. Percentages were
+calculated within each smoking group to account for differences in group
+size. These descriptive findings motivate examining whether
+low-birth-weight probability varies across smoking-intensity categories
+and maternal age groups.
+
+``` r
+# Set the category order for tables, models, and plots.
+dose_labels <- c("0", "1–4", "5–9", "10–19", "20+")
+age_labels <- c(
+  "Under 20", "20–24", "25–29", "30–34", "35–39", "40+"
+)
+
+# Verify that the required analysis variables are complete.
+stopifnot(
+  !anyNA(births$maternal_age),
+  !anyNA(births$cigarettes_daily_trimester1),
+  !anyNA(births$low_birth_weight),
+  is.logical(births$low_birth_weight)
+)
+
+# Summarize births within each year, age group, and smoking category.
 cells <- births |>
   group_by(
     year = factor(year),
@@ -67,16 +161,19 @@ cells <- births |>
     )
   ) |>
   summarise(
-    total = n(),                  # All eligible births in this cell
-    low = sum(low_birth_weight),  # Births weighing less than 2,500 g
+    total = n(),
+    low = sum(low_birth_weight),
     .groups = "drop"
   ) |>
-  mutate(other = total - low)     # Births weighing 2,500 g or more
+  mutate(other = total - low)
 
-# Every eligible birth should appear in exactly one cell.
-stopifnot(sum(cells$total) == nrow(births), !anyNA(cells))
+# Confirm that grouping retained every eligible birth.
+stopifnot(
+  sum(cells$total) == nrow(births),
+  !anyNA(cells)
+)
 
-# Pool the three years to inspect the observed percentages.
+# Pool years to create the descriptive age–smoking table.
 observed <- cells |>
   group_by(age, dose) |>
   summarise(
@@ -85,59 +182,88 @@ observed <- cells |>
     .groups = "drop"
   ) |>
   mutate(observed_pct = 100 * low / total)
-
-knitr::kable(
-  observed,
-  digits = 2,
-  format.args = list(big.mark = ","),
-  col.names = c("Maternal age", "Cigarettes/day", "Eligible births",
-                "Low-birth-weight births", "Observed low birth weight (%)")
-)
 ```
 
-| Maternal age | Cigarettes/day | Eligible births | Low-birth-weight births | Observed low birth weight (%) |
-|:---|:---|---:|---:|---:|
-| Under 20 | 0 | 393,927 | 39,535 | 10.04 |
-| Under 20 | 1–4 | 2,519 | 345 | 13.70 |
-| Under 20 | 5–9 | 1,437 | 199 | 13.85 |
-| Under 20 | 10–19 | 1,466 | 240 | 16.37 |
-| Under 20 | 20+ | 1,320 | 182 | 13.79 |
-| 20–24 | 0 | 1,723,386 | 128,697 | 7.47 |
-| 20–24 | 1–4 | 11,818 | 1,464 | 12.39 |
-| 20–24 | 5–9 | 8,956 | 1,005 | 11.22 |
-| 20–24 | 10–19 | 11,926 | 1,471 | 12.33 |
-| 20–24 | 20+ | 9,870 | 1,252 | 12.68 |
-| 25–29 | 0 | 2,802,190 | 173,397 | 6.19 |
-| 25–29 | 1–4 | 14,797 | 1,951 | 13.19 |
-| 25–29 | 5–9 | 14,481 | 1,792 | 12.37 |
-| 25–29 | 10–19 | 22,489 | 2,887 | 12.84 |
-| 25–29 | 20+ | 16,941 | 2,325 | 13.72 |
-| 30–34 | 0 | 3,130,312 | 190,681 | 6.09 |
-| 30–34 | 1–4 | 14,484 | 2,202 | 15.20 |
-| 30–34 | 5–9 | 15,425 | 2,246 | 14.56 |
-| 30–34 | 10–19 | 25,709 | 3,823 | 14.87 |
-| 30–34 | 20+ | 18,930 | 3,083 | 16.29 |
-| 35–39 | 0 | 1,753,919 | 121,030 | 6.90 |
-| 35–39 | 1–4 | 7,725 | 1,396 | 18.07 |
-| 35–39 | 5–9 | 8,850 | 1,609 | 18.18 |
-| 35–39 | 10–19 | 14,893 | 2,792 | 18.75 |
-| 35–39 | 20+ | 10,843 | 2,224 | 20.51 |
-| 40+ | 0 | 425,678 | 38,367 | 9.01 |
-| 40+ | 1–4 | 1,975 | 427 | 21.62 |
-| 40+ | 5–9 | 2,168 | 420 | 19.37 |
-| 40+ | 10–19 | 3,631 | 786 | 21.65 |
-| 40+ | 20+ | 2,560 | 606 | 23.67 |
+\#Create smoking-intensity and maternal-age groups
 
-Among mothers under 20, the observed percentage of low-birth-weight
-births was 10.04% for those reporting zero cigarettes per day and 13.70%
-for those reporting 1–4 cigarettes per day, a difference of 3.66
-percentage points. Among mothers aged 30–34, the corresponding
-percentages were 6.09% and 15.20%, a difference of 9.11 percentage
-points. Within the under-20 group, the percentage peaked at 16.37% for
-10–19 cigarettes per day and fell to 13.79% for 20 or more. These
-descriptive patterns motivated examining smoking intensity as a
-categorical exposure and testing whether its association with low birth
-weight varied by maternal age.
+``` r
+# Locate the temporary folder assigned to this R session.
+session_temp <- tempdir()
+
+# Recreate the folder if it has disappeared.
+if (!dir.exists(session_temp)) {
+  dir.create(
+    session_temp,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+}
+
+# Stop with a clear message if the folder could not be restored.
+if (!dir.exists(session_temp)) {
+  stop("Temporary folder could not be restored. Save your Rmd and restart R.")
+}
+
+# Check that the restored folder is writable.
+test_file <- tempfile(pattern = "write_check_", tmpdir = session_temp)
+
+if (!file.create(test_file)) {
+  stop("R cannot write to its temporary folder. Save your Rmd and restart R.")
+}
+```
+
+``` r
+# Calculate the percentage in each smoking category within each age group.
+smoking_distribution <- observed |>
+  group_by(age) |>
+  mutate(
+    age_total = sum(total),
+    category_pct = 100 * total / age_total
+  ) |>
+  ungroup()
+
+# Each panel shows one smoking-intensity category.
+# Compare maternal age groups within each panel.
+ggplot(
+  smoking_distribution,
+  aes(x = age, y = category_pct)
+) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  facet_wrap(~ dose, ncol = 3, scales = "free_y") +
+  labs(
+    title = "Reported smoking intensity by maternal age",
+    subtitle = "Panel labels indicate cigarettes per day in the first trimester",
+    x = "Maternal age group",
+    y = "Eligible births within age group (%)",
+    caption = "Vertical scales vary across panels."
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+![](P8105_smoking_intensity_files/figure-gfm/smoking-distribution-1.png)<!-- -->
+
+Most eligible births had no reported first-trimester smoking across all
+maternal age groups. However, the distribution of smoking intensity
+differed by age. Reporting 1–4 cigarettes daily was most common among
+mothers aged 20–24, whereas reporting 10–19 cigarettes daily generally
+became more common with increasing age. Reporting 20 or more cigarettes
+daily was least common among mothers under 20 and relatively similar
+across groups aged 25 and older. These descriptive differences support
+considering maternal age when examining the association between smoking
+intensity and low birth weight.
+
+We examined low birth weight, defined as birth weight below 2,500 g,
+across five categories of reported first-trimester smoking intensity.
+Model 1 included smoking intensity, maternal age group, and birth year
+as categorical predictors. Model 2 additionally included an interaction
+between smoking intensity and maternal age group. We compared the models
+using a likelihood-ratio test. For interpretation, we averaged Model 2’s
+predicted probabilities over a common birth-year distribution and
+calculated percentage-point differences relative to no reported smoking
+within each age group.
 
 ``` r
 # Model 1: Estimate the smoking-intensity association,
@@ -231,6 +357,56 @@ age_results |>
 | 35–39 | 18.07 | 11.17 |
 | 40+ | 21.62 | 12.61 |
 
+``` r
+# Display the observed age–smoking summary in the report.
+observed |>
+  select(age, dose, total, low, observed_pct) |>
+  knitr::kable(
+    digits = 2,
+    format.args = list(big.mark = ","),
+    col.names = c(
+      "Maternal age",
+      "Cigarettes/day",
+      "Eligible births",
+      "Low-birth-weight births",
+      "Observed low birth weight (%)"
+    )
+  )
+```
+
+| Maternal age | Cigarettes/day | Eligible births | Low-birth-weight births | Observed low birth weight (%) |
+|:---|:---|---:|---:|---:|
+| Under 20 | 0 | 393,927 | 39,535 | 10.04 |
+| Under 20 | 1–4 | 2,519 | 345 | 13.70 |
+| Under 20 | 5–9 | 1,437 | 199 | 13.85 |
+| Under 20 | 10–19 | 1,466 | 240 | 16.37 |
+| Under 20 | 20+ | 1,320 | 182 | 13.79 |
+| 20–24 | 0 | 1,723,386 | 128,697 | 7.47 |
+| 20–24 | 1–4 | 11,818 | 1,464 | 12.39 |
+| 20–24 | 5–9 | 8,956 | 1,005 | 11.22 |
+| 20–24 | 10–19 | 11,926 | 1,471 | 12.33 |
+| 20–24 | 20+ | 9,870 | 1,252 | 12.68 |
+| 25–29 | 0 | 2,802,190 | 173,397 | 6.19 |
+| 25–29 | 1–4 | 14,797 | 1,951 | 13.19 |
+| 25–29 | 5–9 | 14,481 | 1,792 | 12.37 |
+| 25–29 | 10–19 | 22,489 | 2,887 | 12.84 |
+| 25–29 | 20+ | 16,941 | 2,325 | 13.72 |
+| 30–34 | 0 | 3,130,312 | 190,681 | 6.09 |
+| 30–34 | 1–4 | 14,484 | 2,202 | 15.20 |
+| 30–34 | 5–9 | 15,425 | 2,246 | 14.56 |
+| 30–34 | 10–19 | 25,709 | 3,823 | 14.87 |
+| 30–34 | 20+ | 18,930 | 3,083 | 16.29 |
+| 35–39 | 0 | 1,753,919 | 121,030 | 6.90 |
+| 35–39 | 1–4 | 7,725 | 1,396 | 18.07 |
+| 35–39 | 5–9 | 8,850 | 1,609 | 18.18 |
+| 35–39 | 10–19 | 14,893 | 2,792 | 18.75 |
+| 35–39 | 20+ | 10,843 | 2,224 | 20.51 |
+| 40+ | 0 | 425,678 | 38,367 | 9.01 |
+| 40+ | 1–4 | 1,975 | 427 | 21.62 |
+| 40+ | 5–9 | 2,168 | 420 | 19.37 |
+| 40+ | 10–19 | 3,631 | 786 | 21.65 |
+| 40+ | 20+ | 2,560 | 606 | 23.67 |
+
 After standardizing to a common distribution of birth years, the
 estimated difference in low birth weight between births with reported
 first-trimester smoking of 1–4 cigarettes/day and births with no
@@ -241,33 +417,156 @@ all five smoking categories, the likelihood-ratio test supported an
 interaction between smoking intensity and maternal age on the log-odds
 scale (χ²(20) = 1,387.5, p \< 0.001).
 
-\#Plot all five smoking categories
-
 ``` r
-# Each panel represents one maternal age group.
-# Keep the same y-axis across panels so the percentages are comparable.
-ggplot(age_results, aes(x = dose, y = adjusted_pct)) +
-  geom_line(aes(group = 1), color = "steelblue", linewidth = 0.7) +
-  geom_point(color = "steelblue", size = 2.5) +
-  facet_wrap(~ age, ncol = 3) +
-  scale_y_continuous(labels = \(x) paste0(x, "%")) +
-  labs(
-    title = "Low birth weight by smoking intensity and maternal age",
-    x = "Reported cigarettes per day in the first trimester",
-    y = "Year-adjusted probability of low birth weight",
-    caption = "Estimates from Model 2, standardized to the 2023–2025 birth-year distribution."
-  ) +
-  theme_minimal()
+# Use the same predictor coding and coefficient order as Model 2.
+X <- model.matrix(
+  delete.response(terms(model2)),
+  data = prediction_grid,
+  contrasts.arg = model2$contrasts,
+  xlev = model2$xlevels
+)
+
+beta <- coef(model2)
+V <- vcov(model2)
+
+stopifnot(
+  model2$converged,
+  all(is.finite(beta)),
+  all(is.finite(V))
+)
+
+X <- X[, names(beta), drop = FALSE]
+V <- V[names(beta), names(beta), drop = FALSE]
+
+# Predict the probability for every age–dose–year combination.
+predicted_prob <- plogis(drop(X %*% beta))
+
+combinations <- prediction_grid |>
+  distinct(age, dose)
+
+age_results_ci <- bind_rows(
+  lapply(seq_len(nrow(combinations)), function(i) {
+
+    # Select the birth-year rows for this age–dose combination.
+    rows <- which(
+      prediction_grid$age == combinations$age[i] &
+      prediction_grid$dose == combinations$dose[i]
+    )
+
+    # Apply the same birth-year distribution to every combination.
+    w <- prediction_grid$n_births[rows]
+    w <- w / sum(w)
+
+    p <- predicted_prob[rows]
+    p_standardized <- sum(w * p)
+
+    # Delta-method gradient of the weighted average probability.
+    gradient <- colSums(
+      sweep(
+        X[rows, , drop = FALSE],
+        1,
+        w * p * (1 - p),
+        FUN = "*"
+      )
+    )
+
+    variance_p <- as.numeric(t(gradient) %*% V %*% gradient)
+    se_p <- sqrt(max(variance_p, 0))
+
+    # Construct confidence limits on the logit scale so that
+    # the transformed limits remain between zero and one.
+    stopifnot(p_standardized > 0, p_standardized < 1)
+
+    se_logit <- se_p /
+      (p_standardized * (1 - p_standardized))
+
+    z <- qnorm(0.975)
+
+    tibble(
+      age = as.character(combinations$age[i]),
+      dose = as.character(combinations$dose[i]),
+      adjusted_pct = 100 * p_standardized,
+      lower_95 = 100 * plogis(
+        qlogis(p_standardized) - z * se_logit
+      ),
+      upper_95 = 100 * plogis(
+        qlogis(p_standardized) + z * se_logit
+      )
+    )
+  })
+) |>
+  mutate(
+    age = factor(age, levels = levels(cells$age)),
+    dose = factor(dose, levels = levels(cells$dose))
+  ) |>
+  arrange(age, dose)
 ```
 
-![](P8105_smoking_intensity_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
-Among eligible U.S. singleton births in 2023–2025, the year-adjusted
-probability of low birth weight was higher in every reported smoking
+``` r
+# Use the new results containing the confidence limits.
+ggplot(
+  age_results_ci,
+  aes(x = dose, y = adjusted_pct, group = 1)
+) +
+  geom_line(color = "steelblue", linewidth = 0.7) +
+  geom_errorbar(
+    aes(ymin = lower_95, ymax = upper_95),
+    width = 0.18,
+    color = "black",
+    linewidth = 0.7
+  ) +
+  geom_point(color = "steelblue", size = 2) +
+  facet_wrap(~ age, ncol = 3) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%")
+  ) +
+  labs(
+    title = "Low birth weight by smoking intensity and maternal age",
+    subtitle = "Year-standardized probabilities with 95% confidence intervals",
+    x = "Reported cigarettes per day in the first trimester",
+    y = "Year-adjusted probability of low birth weight",
+    caption = "Model 2 estimates; black bars show pointwise 95% confidence intervals."
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+![](P8105_smoking_intensity_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
+After standardizing to a common birth-year distribution, estimated
+low-birth-weight probabilities were higher in every reported smoking
 category than in the zero-cigarette category within each maternal age
-group. The difference between 1–4 and 0 cigarettes/day widened across
-age groups, from 3.66 percentage points among mothers under 20 to 12.61
-percentage points among mothers aged 40 or older. Across higher smoking
-categories, the estimated probabilities fluctuated, and the pattern
-varied by age. The overall smoking-intensity-by-age interaction was
-statistically significant (likelihood-ratio χ²(20) = 1,387.5, p \<
-0.001).
+group. However, probabilities did not increase consistently across
+higher smoking-intensity categories. Confidence intervals were generally
+wider among smoking groups aged under 20 and 40 or older, indicating
+greater uncertainty in these estimates. These findings describe
+associations and should not be interpreted as causal effects.
+
+### Q2 conclusion
+
+Reported first-trimester smoking was associated with a higher estimated
+probability of low birth weight in every maternal age group. However,
+the estimated probabilities did not increase consistently across higher
+smoking-intensity categories.
+
+Adding the smoking-intensity-by-age interaction improved model fit
+(likelihood-ratio test: χ²(20) = 1387.5, p \< 0.001). This supports
+variation in the smoking-intensity association across maternal age
+groups on the log-odds scale.
+
+After standardizing to a common birth-year distribution, the estimated
+difference between 1–4 and 0 cigarettes/day was 3.66 percentage points
+among mothers under 20 and 12.61 percentage points among mothers aged 40
+or older.
+
+The confidence intervals describe uncertainty around individual adjusted
+probabilities. They do not directly test differences between smoking
+categories.
+
+### Limitations
+
+These findings describe associations and do not establish causation. The
+models accounted for maternal age group and birth year, but other
+factors could explain part of the observed differences. Reported smoking
+may be misclassified, and excluding births with missing smoking or
+birth-weight information could affect the results. Confidence intervals
+do not account for these potential sources of bias.
